@@ -45,11 +45,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     /**
      * 发送验证码
      * @param phone 手机号
-     * @param session HttpSession对象，用于保存验证码
      * @return 结果对象，包含操作结果信息
      */
     @Override
-    public Result sendCode(String phone, HttpSession session) {
+    public Result sendCode(String phone) {
         //1.校验手机号
         if (RegexUtils.isPhoneInvalid(phone)) {
             return Result.fail("手机号格式错误！");
@@ -66,11 +65,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     /**
      * 登录功能
      * @param loginForm 登录参数，包含手机号和验证码
-     * @param session HttpSession对象，用于保存用户信息
      * @return 结果对象，包含操作结果信息
      */
     @Override
-    public Result login(LoginFormDTO loginForm, HttpSession session) {
+    public Result login(LoginFormDTO loginForm) {
         //1.校验手机号格式
         String phone = loginForm.getPhone();
         if (RegexUtils.isPhoneInvalid(phone)) {
