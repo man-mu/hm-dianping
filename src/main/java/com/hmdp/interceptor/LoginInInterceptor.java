@@ -17,41 +17,19 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import static com.hmdp.utils.RedisConstants.LOGIN_CODE_KEY;
-import static com.hmdp.utils.RedisConstants.LOGIN_USER_TTL;
+import static com.hmdp.utils.RedisConstants.*;
 
 public class LoginInInterceptor implements HandlerInterceptor {
 
-    private StringRedisTemplate stringRedisTemplate;
-
-    public LoginInInterceptor(StringRedisTemplate stringRedisTemplate) {
-        this.stringRedisTemplate = stringRedisTemplate;
-    }
-
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-
-        //获取请求头中的token
-        String token = request.getHeader("authorization");
-        if (token == null) {
+        //判断是否需要拦截（ThreadLocal中是否有用户）
+        if (UserHolder.getUser() == null) {
+            //无用户，进行拦截
             response.setStatus(401);
             return false;
         }
-        //根据token从redis中获取用户信息
-        String key = LOGIN_CODE_KEY + token;
-        Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(key);
-        if (userMap.isEmpty()) {
-            response.setStatus(401);
-            return false;
-        }
-
-        //将map转换为UserDTO对象
-        UserDTO userDTO = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);
-
-        //保存用户信息到ThreadLocal
-        UserHolder.saveUser(userDTO);
-        //刷新token有效期
-        stringRedisTemplate.expire(key, LOGIN_USER_TTL, TimeUnit.SECONDS);
+        //有用户，放行
         return true;
     }
 
@@ -59,4 +37,5 @@ public class LoginInInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, @Nullable Exception ex) throws Exception {
         UserHolder.removeUser();
     }
+
 }
