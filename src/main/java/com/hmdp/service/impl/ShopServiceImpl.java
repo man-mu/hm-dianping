@@ -1,5 +1,7 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.util.RandomUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
@@ -15,8 +17,7 @@ import javax.annotation.Resource;
 import java.util.SortedMap;
 import java.util.concurrent.TimeUnit;
 
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TTL;
+import static com.hmdp.utils.RedisConstants.*;
 
 /**
  * <p>
@@ -39,20 +40,24 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         String shopJSON = stringRedisTemplate.opsForValue().get(key);
 
         //2.命中，直接返回
-        if (shopJSON != null && shopJSON.isBlank()) {
+        if (StrUtil.isNotBlank(shopJSON)) {
             Shop shop = JSONUtil.toBean(shopJSON, Shop.class);
             return Result.ok(shop);
+        }
+        if ("".equals(shopJSON)){
+            return Result.fail("店铺不存在");
         }
 
         //3.未命中，查询数据库
         Shop shop = getById(id);
         //4.数据库不存在，返回错误
         if (shop == null) {
+            stringRedisTemplate.opsForValue().set(key, "", CACHE_NULL_TTL, TimeUnit.MINUTES);
             return Result.fail("店铺不存在");
         }
 
         //5.数据库存在，写入缓存并返回数据
-        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), CACHE_SHOP_TTL+ RandomUtil.randomInt(10), TimeUnit.MINUTES);
 
         return Result.ok(shop);
     }
