@@ -48,10 +48,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //Shop shop = queryWithNullCache(id);
 
         //互斥锁应对缓存击穿及穿透查询
-        //Shop shop = queryWithMutex(id);
+        Shop shop = queryWithMutex(id);
 
         //逻辑过期应对缓存击穿查询
-        Shop shop = queryWithLogicalExpire(id);
+        //Shop shop = queryWithLogicalExpire(id);
 
         if (shop == null){
             return Result.fail("店铺不存在");
