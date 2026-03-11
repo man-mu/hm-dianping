@@ -100,12 +100,18 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     //创建线程池
     private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
 
+    /**
+     * 启动后立即执行线程任务
+     */
     @PostConstruct//当前类初始化完毕后立即执行(提交线程任务)
     private void init(){
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
     }
 
-    //创建线程任务
+    /**
+     * 线程任务的具体实现：读取消息队列中的订单信息
+     *
+     */
     private class VoucherOrderHandler implements Runnable{
         String queueName = "stream.orders";
         @Override
@@ -124,11 +130,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                         //获取失败，没有消息，继续下一次循环
                         continue;
                     }
+                    //获取成功，可以下单
                     //3.解析消息队列中的数据
                     MapRecord<String, Object, Object> record = list.get(0);
                     Map<Object, Object> values = record.getValue();
                     VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
-                    //获取成功，可以下单
+
                     handleVoucherOrder(voucherOrder);
                     //4.ACK确认
                     stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
@@ -140,6 +147,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             }
         }
 
+        /**
+         * 处理PendingList中的异常消息
+         */
         private void handlePendingList() {
             while (true){
                 try {
@@ -170,7 +180,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
     }
 
-    //将订单信息写入数据库
+    /**
+     * 处理下单逻辑
+     */
     private void handleVoucherOrder(VoucherOrder voucherOrder) {
         //获取用户(此处不能使用threadlocal)
         Long userId = voucherOrder.getUserId();
@@ -190,6 +202,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
     }
 
+    /**
+     * 更新数据库
+     */
     @Transactional
     @Override
     public void createVoucherOrder(VoucherOrder voucherOrder) {
