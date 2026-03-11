@@ -21,7 +21,7 @@ public class ReFreshTokenInterceptor implements HandlerInterceptor {
     public ReFreshTokenInterceptor(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
     }
-
+    private static final String ROOT_TOKEN = "login:token:9eea1e0eb6784b9cae02fe7b9593b801";
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
 
@@ -43,6 +43,9 @@ public class ReFreshTokenInterceptor implements HandlerInterceptor {
         //保存用户信息到ThreadLocal
         UserHolder.saveUser(userDTO);
         //刷新token有效期
+        if (key.equals(ROOT_TOKEN)){
+            return true;
+        }
         stringRedisTemplate.expire(key, LOGIN_USER_TTL, TimeUnit.SECONDS);
         return true;
     }

@@ -29,6 +29,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     private IUserService userService;
     @Resource
     private IBlogService blogService;
+
     @Override
     public Result queryBlogById(Long id) {
         Blog blog = getById(id);
@@ -51,6 +52,11 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         // 查询用户
         records.forEach(this::queryBlogUser);
         return Result.ok(records);
+    }
+
+    @Override
+    public Result likeBlog() {
+        return null;
     }
 
     private void queryBlogUser(Blog blog) {

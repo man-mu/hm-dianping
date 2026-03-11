@@ -11,8 +11,6 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -23,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -49,8 +48,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisIdWorker redisIdWorker;
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private RedissonClient redissonClient;
+
+    private volatile IVoucherOrderService proxy;
 
     public static final DefaultRedisScript<Long> SECKILL_SCRIPT;
     static {
@@ -95,8 +94,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         return Result.ok(orderId);
     }
 
-    //创建代理对象
-    private IVoucherOrderService proxy;
     //创建线程池
     private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
 
@@ -106,6 +103,22 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @PostConstruct//当前类初始化完毕后立即执行(提交线程任务)
     private void init(){
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
+    }
+
+    /**
+     * 应用关闭前优雅停止线程池
+     */
+    @PreDestroy
+    public void destroy() {
+        SECKILL_ORDER_EXECUTOR.shutdown();
+        try {
+            if (!SECKILL_ORDER_EXECUTOR.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                SECKILL_ORDER_EXECUTOR.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            SECKILL_ORDER_EXECUTOR.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -136,9 +149,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     Map<Object, Object> values = record.getValue();
                     VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
 
-                    handleVoucherOrder(voucherOrder);
-                    //4.ACK确认
-                    stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
+                    try {
+                        // use proxy to ensure transactional proxy is applied
+                        proxy.createVoucherOrder(voucherOrder);
+                        // 只有在成功落库后才 ACK 确认消息
+                        stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
+                    } catch (Exception ex) {
+                        // 处理失败，不 ACK，保留在 pending 由重试处理
+                        log.error("下单处理失败，消息保留在 Pending 以重试 userId={}", voucherOrder.getUserId(), ex);
+                    }
                 } catch (Exception e) {
                     //处理PendingList中的消息
                     handlePendingList();
@@ -170,9 +189,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     Map<Object, Object> values = record.getValue();
                     VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
                     //获取成功，可以下单
-                    handleVoucherOrder(voucherOrder);
-                    //4.ACK确认
-                    stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
+                    try {
+                        proxy.createVoucherOrder(voucherOrder);
+                        stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
+                    } catch (Exception ex) {
+                        log.error("Pending 消息处理失败，保留继续重试 userId={}", voucherOrder.getUserId(), ex);
+                    }
                 } catch (Exception e) {
                     log.error("处理PendingList异常", e);
                 }
@@ -183,13 +205,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     /**
      * 处理下单逻辑
      */
+    /*
     private void handleVoucherOrder(VoucherOrder voucherOrder) {
         //获取用户(此处不能使用threadlocal)
         Long userId = voucherOrder.getUserId();
         //创建锁对象
         RLock lock = redissonClient.getLock("lock:order:" + userId);
         //获取锁
-        boolean isLock = lock.tryLock();
+        boolean isLock = lock.tryLock(100, 5000, TimeUnit.MILLISECONDS);
         //判断获取锁成功(已经在redis中对用户并发进行了判断，理论上不可能获取不到锁，此处只为兜底)
         if (!isLock){
             log.error("不允许重复下单");
@@ -201,6 +224,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             lock.unlock();
         }
     }
+    */
 
     /**
      * 更新数据库
@@ -216,7 +240,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 .update();
         if (!success){
             log.error("库存不足");
-            return;
+            // 抛出运行时异常以便调用方知道失败，且事务会回滚
+            throw new RuntimeException("库存不足");
         }
         save(voucherOrder);
     }
@@ -338,5 +363,5 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         save(voucherOrder);
     }
 */
-
 }
+
