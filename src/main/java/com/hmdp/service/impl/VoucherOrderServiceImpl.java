@@ -105,21 +105,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
     }
 
-    /**
-     * 应用关闭前优雅停止线程池
-     */
-    @PreDestroy
-    public void destroy() {
-        SECKILL_ORDER_EXECUTOR.shutdown();
-        try {
-            if (!SECKILL_ORDER_EXECUTOR.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
-                SECKILL_ORDER_EXECUTOR.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            SECKILL_ORDER_EXECUTOR.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-    }
 
     /**
      * 线程任务的具体实现：读取消息队列中的订单信息
@@ -149,15 +134,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     Map<Object, Object> values = record.getValue();
                     VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
 
-                    try {
-                        // use proxy to ensure transactional proxy is applied
-                        proxy.createVoucherOrder(voucherOrder);
-                        // 只有在成功落库后才 ACK 确认消息
-                        stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
-                    } catch (Exception ex) {
-                        // 处理失败，不 ACK，保留在 pending 由重试处理
-                        log.error("下单处理失败，消息保留在 Pending 以重试 userId={}", voucherOrder.getUserId(), ex);
-                    }
+                    proxy.createVoucherOrder(voucherOrder);
+                    // 只有在成功落库后才 ACK 确认消息
+                    stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
                 } catch (Exception e) {
                     //处理PendingList中的消息
                     handlePendingList();
@@ -189,12 +168,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     Map<Object, Object> values = record.getValue();
                     VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
                     //获取成功，可以下单
-                    try {
-                        proxy.createVoucherOrder(voucherOrder);
-                        stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
-                    } catch (Exception ex) {
-                        log.error("Pending 消息处理失败，保留继续重试 userId={}", voucherOrder.getUserId(), ex);
-                    }
+
+                    proxy.createVoucherOrder(voucherOrder);
+                    stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
+
                 } catch (Exception e) {
                     log.error("处理PendingList异常", e);
                 }
