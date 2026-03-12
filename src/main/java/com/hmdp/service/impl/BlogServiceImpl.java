@@ -118,7 +118,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         List<UserDTO> userDTOS = userService
                 .query()
                 .in("id", userIds)
-                .last("ORDER BY FIELD(id," + idStr + ")")
+                .last("ORDER BY FIELD(id," + idStr + ")")//最后的手写的sql语句
                 .list()
                 .stream()
                 .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
