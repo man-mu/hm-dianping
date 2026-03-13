@@ -12,7 +12,7 @@ spring:
     database: 1
     host: localhost
     password: 123456
-    port: 6379
+    port: 6380
     lettuce:
       pool:
         max-active: 10

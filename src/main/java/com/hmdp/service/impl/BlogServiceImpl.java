@@ -1,20 +1,21 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollPageResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
+import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
-import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.hmdp.utils.RedisConstants.BLOG_LIKED_KEY;
+import static com.hmdp.utils.RedisConstants.FEED_KEY;
 
 /**
  * <p>
@@ -43,6 +45,8 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     private IBlogService blogService;
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+    @Autowired
+    private IFollowService followService;
 
     @Override
     public Result queryBlogById(Long id) {
@@ -134,19 +138,66 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         // 保存探店博文
         blogService.save(blog);
         //查询作者所有粉丝
-        List<Blog> fans = blogService.query().eq("follow_user_id", user.getId()).list();
+        List<Follow> fans = followService.query().eq("follow_user_id", user.getId()).list();
         if (fans == null || fans.isEmpty()){
                 return Result.ok();
         }
         //推送笔记id给所有粉丝
-        for (Blog fan : fans) {
-            String key = "feed:" + fan.getUserId();
+        for (Follow fan : fans) {
+            String key = FEED_KEY + fan.getUserId();
             stringRedisTemplate
                     .opsForZSet()
                     .add(key, blog.getId().toString(), System.currentTimeMillis());
         }
         //返回id
         return Result.ok(blog.getId());
+    }
+
+    @Override
+    public Result queryBlogOfFollow(Long lastId, Integer offset) {
+        // 获取当前用户
+        Long userId = UserHolder.getUser().getId();
+        // 防御式处理，避免请求参数缺失导致空指针
+        long maxScore = (lastId == null || lastId <= 0) ? Long.MAX_VALUE : lastId;
+        int safeOffset = (offset == null || offset < 0) ? 0 : offset;
+
+        // 查询收件箱 ZREVRANGEBYSCORE key Max Min WITHSCORES LIMIT offset count
+        String key = FEED_KEY + userId;
+        Set<String> ids = stringRedisTemplate.opsForZSet()
+                .reverseRangeByScore(key, 0, maxScore, safeOffset, 2);
+        if (ids == null || ids.isEmpty()) {
+            return Result.ok();
+        }
+
+        // 解析出blogId和score
+        List<Long> blogIds = ids.stream().map(Long::valueOf).collect(Collectors.toList());
+        long minTime = 0;
+        int os = 1;
+        for (String id : ids) {
+            Double score = stringRedisTemplate.opsForZSet().score(key, id);
+            if (score == null) {
+                continue;
+            }
+            long time = score.longValue();
+            if (time == minTime) {
+                os++;
+            } else {
+                minTime = time;
+                os = 1;
+            }
+        }
+
+        // 根据id查询blog
+        String idStr = StrUtil.join(",", blogIds);
+        List<Blog> blogs = query().in("id", blogIds)
+                .last("ORDER BY FIELD(id," + idStr + ")")
+                .list();
+        for (Blog blog : blogs) {
+            queryBlogUser(blog);
+            isBlogLiked(blog);
+        }
+        ScrollPageResult scrollPageResult = new ScrollPageResult(blogs, minTime, os);
+        return Result.ok(scrollPageResult);
     }
 
     private void queryBlogUser(Blog blog) {

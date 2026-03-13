@@ -81,4 +81,9 @@ public class BlogController {
         return Result.ok(records);
     }
 
+    @GetMapping("/of/follow")
+    public Result queryBlogOfFollow(Long lastId, Integer offset) {
+        return blogService.queryBlogOfFollow(lastId, offset);
+    }
+
 }
