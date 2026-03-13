@@ -126,6 +126,29 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         return Result.ok(userDTOS);
     }
 
+    @Override
+    public Result saveBlog(Blog blog) {
+        // 获取登录用户
+        UserDTO user = UserHolder.getUser();
+        blog.setUserId(user.getId());
+        // 保存探店博文
+        blogService.save(blog);
+        //查询作者所有粉丝
+        List<Blog> fans = blogService.query().eq("follow_user_id", user.getId()).list();
+        if (fans == null || fans.isEmpty()){
+                return Result.ok();
+        }
+        //推送笔记id给所有粉丝
+        for (Blog fan : fans) {
+            String key = "feed:" + fan.getUserId();
+            stringRedisTemplate
+                    .opsForZSet()
+                    .add(key, blog.getId().toString(), System.currentTimeMillis());
+        }
+        //返回id
+        return Result.ok(blog.getId());
+    }
+
     private void queryBlogUser(Blog blog) {
         Long userId = blog.getUserId();
         User user = userService.getById(userId);
