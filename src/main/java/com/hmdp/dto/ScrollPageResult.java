@@ -7,7 +7,6 @@ import java.util.List;
 
 /**
  * 滚动分页返回结果
- * @param <T> 数据类型
  */
 @Data
 @NoArgsConstructor
